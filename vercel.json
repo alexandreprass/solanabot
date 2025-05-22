@@ -14,8 +14,8 @@
     }
   ],
   "env": {
-    "TELEGRAM_BOT_TOKEN": "@telegram_bot_token_secret",
-    "SOLANA_RPC_URL": "@solana_rpc_url_secret",
-    "UPSTASH_REDIS_URL": "@upstash_redis_url_secret"
+    "TELEGRAM_BOT_TOKEN": "8162370248:AAGAKhkdPBSusC4yXt67UGEmmkFUxDyjU4s",
+    "SOLANA_RPC_URL": "https://dry-flashy-reel.solana-mainnet.quiknode.pro/9e6485b3ea793670ad44d83380549b176d6ab7db/",
+    "UPSTASH_REDIS_URL": "rediss://default:AXE5AAIjcDFkMWQwMTQxYmJhMzI0OGI1YTEyMDEwMWJlOGIxODM0NHAxMA@shining-troll-28985.upstash.io:6379"
   }
 }
