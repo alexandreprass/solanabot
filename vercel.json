@@ -5,7 +5,7 @@
       "src": "api/bot.py",
       "use": "@vercel/python",
       "config": {
-        "pythonVersion": "3.9" // Você pode tentar "3.9", "3.10" ou "3.11"
+        "pythonVersion": "3.9"
       }
     }
   ],
