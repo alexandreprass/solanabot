@@ -13,16 +13,7 @@
     {
       "src": "/api/bot",
       "dest": "api/bot.py",
-      "methods": ["POST"],
-      "headers": {
-        "Access-Control-Allow-Origin": "*"
-      }
+      "methods": ["POST"]
     }
-  ],
-  "functions": {
-    "api/bot.py": {
-      "handler": "handler",
-      "runtime": "python3.12"
-    }
-  }
+  ]
 }
