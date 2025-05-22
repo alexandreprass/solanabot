@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "api/bot.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "pythonVersion": "3.9" // Você pode tentar "3.9", "3.10" ou "3.11"
+      }
     }
   ],
   "routes": [
@@ -11,8 +14,5 @@
       "src": "/api/bot",
       "dest": "api/bot.py"
     }
-  ],
-  "engines": {
-    "python": "3.9"
-  }
+  ]
 }
