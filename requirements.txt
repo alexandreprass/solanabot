@@ -1,4 +1,4 @@
-python-telegram-bot==20.0
-solana==0.25.1
-solders==0.2.0
-httpx==0.23.3
+python-telegram-bot
+solana
+requests # Se for usar Vercel KV ou outra API HTTP para armazenamento
+# redis # Se for usar Upstash Redis
