@@ -5,7 +5,7 @@ from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from http import HTTPStatus
+import asyncio
 
 # Configurações
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8162370248:AAGAKhkdPBSusC4yXt67UGEmmkFUxDyjU4s")
@@ -13,8 +13,8 @@ QUICKNODE_URL = os.environ.get("QUICKNODE_URL", "https://dry-flashy-reel.solana-
 TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
 
 # Armazenamento em memória
-competitions = {}  # {chat_id: {"token_address": str, "start_time": datetime, "period_days": int}}
-wallets = {}  # {chat_id: {user_id: wallet_address}}
+competitions = {}
+wallets = {}
 
 # Conexão com QuickNode
 solana_client = Client(QUICKNODE_URL)
@@ -29,7 +29,7 @@ async def register_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     wallet_address = args[0]
     try:
-        Pubkey.from_string(wallet_address)  # Valida endereço Solana
+        Pubkey.from_string(wallet_address)
         if chat_id not in wallets:
             wallets[chat_id] = {}
         wallets[chat_id][user_id] = wallet_address
@@ -47,12 +47,13 @@ async def start_comp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     token_address, period = args
     try:
         period_days = int(period.replace("d", ""))
-        Pubkey.from_string(token_address)  # Valida endereço do token
+        Pubkey.from_string(token_address)
         competitions[chat_id] = {
             "token_address": token_address,
             "start_time": datetime.now(),
             "period_days": period_days
         }
+        await update.message.reply_text("⚠️ Aviso: Investir em criptomoedas envolve riscos. Participe por sua conta e risco.")
         await update.message.reply_text(f"Competição iniciada para o token {token_address} por {period_days} dias!")
     except Exception as e:
         await update.message.reply_text(f"Erro: {str(e)}")
@@ -73,14 +74,8 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # Obter transações do token
         token_pubkey = Pubkey.from_string(token_address)
-        signatures = solana_client.get_signatures_for_address(
-            token_pubkey,
-            before=None,
-            until=None,
-            limit=100  # Limitar para evitar excesso de dados
-        ).value
+        signatures = solana_client.get_signatures_for_address(token_pubkey, limit=50).value
 
         volumes = {}
         for sig in signatures:
@@ -89,31 +84,23 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 tx = solana_client.get_transaction(sig.signature).value
                 if not tx:
                     continue
-                # Analisar transações de transferência de token
                 for instruction in tx.transaction.message.instructions:
                     if instruction.program_id == TOKEN_PROGRAM_ID:
-                        # Verificar se é uma instrução de transferência (opcode 3)
                         if instruction.data[0] == 3:
                             accounts = instruction.accounts
-                            destination = str(accounts[1])  # Conta de destino
-                            amount = int.from_bytes(instruction.data[1:9], "little") / 1e9  # Quantidade em tokens
+                            destination = str(accounts[1])
+                            amount = int.from_bytes(instruction.data[1:9], "little") / 1e9
                             if destination in wallets.get(chat_id, {}).values():
                                 if destination in volumes:
                                     volumes[destination] += amount
                                 else:
                                     volumes[destination] = amount
 
-        # Mapear carteiras para usuários
-        user_volumes = []
-        for user_id, wallet in wallets.get(chat_id, {}).items():
-            if wallet in volumes:
-                user_volumes.append((user_id, wallet, volumes[wallet]))
-
+        user_volumes = [(user_id, wallet, volumes[wallet]) for user_id, wallet in wallets.get(chat_id, {}).items() if wallet in volumes]
         if not user_volumes:
             await update.message.reply_text("Nenhum volume registrado para as carteiras participantes.")
             return
 
-        # Ordenar por volume
         user_volumes.sort(key=lambda x: x[2], reverse=True)
         message = f"🏆 Ranking de Compras - Token {token_address}\n\n"
         for i, (user_id, wallet, volume) in enumerate(user_volumes, 1):
@@ -123,7 +110,7 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Erro ao gerar ranking: {str(e)}")
 
 # Handler para Vercel
-async def main(event, context):
+async def handler(event, context):
     try:
         body = json.loads(event["body"])
         update = Update.de_json(body, None)
@@ -133,15 +120,11 @@ async def main(event, context):
         app.add_handler(CommandHandler("ranking", ranking))
         await app.process_update(update)
         return {
-            "statusCode": HTTPStatus.OK,
+            "statusCode": 200,
             "body": json.dumps({"status": "ok"})
         }
     except Exception as e:
         return {
-            "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR,
+            "statusCode": 500,
             "body": json.dumps({"error": str(e)})
         }
-
-# Para Vercel
-def handler(event, context):
-    return asyncio.run(main(event, context))
