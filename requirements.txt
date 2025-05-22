@@ -1,4 +1,4 @@
-python-telegram-bot
+# python-telegram-bot 
 solana
 requests
-redis  # Adicione esta linha para o cliente Upstash Redis
+redis
