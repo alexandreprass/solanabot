@@ -3,19 +3,16 @@
   "builds": [
     {
       "src": "api/bot.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "15mb" }
+      "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/bot",
-      "dest": "/api/bot.py"
+      "dest": "api/bot.py"
     }
   ],
-  "env": {
-    "TELEGRAM_BOT_TOKEN": "8162370248:AAGAKhkdPBSusC4yXt67UGEmmkFUxDyjU4s",
-    "SOLANA_RPC_URL": "https://dry-flashy-reel.solana-mainnet.quiknode.pro/9e6485b3ea793670ad44d83380549b176d6ab7db/",
-    "UPSTASH_REDIS_URL": "rediss://default:AXE5AAIjcDFkMWQwMTQxYmJhMzI0OGI1YTEyMDEwMWJlOGIxODM0NHAxMA@shining-troll-28985.upstash.io:6379"
+  "engines": {
+    "python": "3.9" // Você pode tentar "3.9", "3.10", ou "3.11"
   }
 }
