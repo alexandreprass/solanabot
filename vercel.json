@@ -15,8 +15,7 @@
   ],
   "env": {
     "TELEGRAM_BOT_TOKEN": "@telegram_bot_token_secret",
-    "SOLANA_RPC_URL": "@solana_rpc_url_secret"
-    // Adicione aqui os nomes dos segredos criados na Vercel
-    // "UPSTASH_REDIS_URL": "@upstash_redis_url_secret"
+    "SOLANA_RPC_URL": "@solana_rpc_url_secret",
+    "UPSTASH_REDIS_URL": "@upstash_redis_url_secret"
   }
 }
