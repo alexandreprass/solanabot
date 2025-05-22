@@ -2,18 +2,21 @@
   "version": 2,
   "builds": [
     {
-      "src": "index.py",
+      "src": "api/bot.py",
       "use": "@vercel/python",
-      "config": {
-        "runtime": "python3.11"
-      }
+      "config": { "maxLambdaSize": "15mb" }
     }
   ],
   "routes": [
     {
       "src": "/api/bot",
-      "dest": "index.py",
-      "methods": ["POST"]
+      "dest": "/api/bot.py"
     }
-  ]
+  ],
+  "env": {
+    "TELEGRAM_BOT_TOKEN": "@telegram_bot_token_secret",
+    "SOLANA_RPC_URL": "@solana_rpc_url_secret"
+    // Adicione aqui os nomes dos segredos criados na Vercel
+    // "UPSTASH_REDIS_URL": "@upstash_redis_url_secret"
+  }
 }
