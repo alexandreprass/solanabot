@@ -17,7 +17,10 @@ competitions = {}
 wallets = {}
 
 # Conexão com QuickNode
-solana_client = Client(QUICKNODE_URL)
+try:
+    solana_client = Client(QUICKNODE_URL)
+except Exception as e:
+    print(f"Erro ao conectar ao QuickNode: {e}")
 
 # Registrar carteira
 async def register_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,7 +38,7 @@ async def register_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wallets[chat_id][user_id] = wallet_address
         await update.message.reply_text(f"Carteira {wallet_address} registrada com sucesso!")
     except Exception as e:
-        await update.message.reply_text(f"Erro: Endereço inválido. {str(e)}")
+        await update.message.reply_text(f"Erro: Endereço inválido ou problema interno. {str(e)}")
 
 # Iniciar competição
 async def start_comp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,28 +78,29 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         token_pubkey = Pubkey.from_string(token_address)
-        signatures = solana_client.get_signatures_for_address(token_pubkey, limit=50).value
+        signatures = solana_client.get_signatures_for_address(token_pubkey, limit=25).value  # Reduzido para 25
 
         volumes = {}
         for sig in signatures:
+            if sig.block_time is None:
+                continue
             tx_time = datetime.fromtimestamp(sig.block_time)
             if start_time <= tx_time <= end_time:
                 tx = solana_client.get_transaction(sig.signature).value
                 if not tx:
                     continue
                 for instruction in tx.transaction.message.instructions:
-                    if instruction.program_id == TOKEN_PROGRAM_ID:
+                    if instruction.program_id == TOKEN_PROGRAM_ID and len(instruction.data) >= 9:
                         if instruction.data[0] == 3:
                             accounts = instruction.accounts
-                            destination = str(accounts[1])
-                            amount = int.from_bytes(instruction.data[1:9], "little") / 1e9
-                            if destination in wallets.get(chat_id, {}).values():
-                                if destination in volumes:
-                                    volumes[destination] += amount
-                                else:
-                                    volumes[destination] = amount
+                            if len(accounts) > 1:
+                                destination = str(accounts[1])
+                                amount = int.from_bytes(instruction.data[1:9], "little") / 1e9
+                                if destination in wallets.get(chat_id, {}).values():
+                                    volumes[destination] = volumes.get(destination, 0) + amount
 
-        user_volumes = [(user_id, wallet, volumes[wallet]) for user_id, wallet in wallets.get(chat_id, {}).items() if wallet in volumes]
+        user_volumes = [(user_id, wallet, volumes.get(wallet, 0)) for user_id, wallet in wallets.get(chat_id, {}).items()]
+        user_volumes = [v for v in user_volumes if v[2] > 0]
         if not user_volumes:
             await update.message.reply_text("Nenhum volume registrado para as carteiras participantes.")
             return
@@ -112,13 +116,14 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Handler para Vercel
 async def handler(event, context):
     try:
-        body = json.loads(event["body"])
+        body = json.loads(event.get("body", "{}"))
         update = Update.de_json(body, None)
-        app = Application.builder().token(TELEGRAM_TOKEN).build()
-        app.add_handler(CommandHandler("registerwallet", register_wallet))
-        app.add_handler(CommandHandler("startcomp", start_comp))
-        app.add_handler(CommandHandler("ranking", ranking))
-        await app.process_update(update)
+        if update and update.message:
+            app = Application.builder().token(TELEGRAM_TOKEN).build()
+            app.add_handler(CommandHandler("registerwallet", register_wallet))
+            app.add_handler(CommandHandler("startcomp", start_comp))
+            app.add_handler(CommandHandler("ranking", ranking))
+            await app.process_update(update)
         return {
             "statusCode": 200,
             "body": json.dumps({"status": "ok"})
