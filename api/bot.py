@@ -201,7 +201,7 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Ocorreu um erro inesperado ao gerar o ranking. Detalhe: {str(e)}")
 
 
-# Handler principal para Vercel
+# Handler principal para Vercel (esta função async def main NÃO será chamada pelo handler de teste abaixo)
 async def main(event_data, context):
     if not TELEGRAM_TOKEN:
         logger.critical("Variável de ambiente TELEGRAM_TOKEN não está configurada (hardcoded)!")
@@ -252,34 +252,23 @@ async def main(event_data, context):
             "body": json.dumps({"error": f"Erro interno do servidor: {str(e)}"})
         }
 
-# Entrypoint para Vercel (síncrono) - MODIFICADO COM LOGGING ADICIONAL
+# Entrypoint para Vercel (síncrono) - VERSÃO DE TESTE SUPER SIMPLES
 def handler(event, context):
-    logger.info("Handler síncrono Vercel 'handler' chamado. Executando 'main' com asyncio.run().")
-    response = None # Inicializa response
-    try:
-        response = asyncio.run(main(event, context))
-        # Log da resposta que será efetivamente retornada para o Vercel
-        if response:
-            # Tenta serializar para o log. Se a resposta não for serializável (improvável aqui), loga o tipo.
-            try:
-                response_str = json.dumps(response)
-            except TypeError:
-                response_str = f"Resposta não serializável em JSON (tipo: {type(response)}): {str(response)}"
-            logger.info(f"Resposta a ser retornada para Vercel: {response_str}")
-        else:
-            logger.warning("A função 'main' retornou None, o que é inesperado para o handler HTTP.")
-            # Fallback para um erro genérico se main retornar None
-            response = {
-                "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR.value,
-                "body": json.dumps({"error": "Handler interno retornou uma resposta vazia."})
-            }
-        return response
-    except Exception as e:
-        # Este except captura erros que podem ocorrer no asyncio.run(main(...))
-        # ou se main levantar uma exceção que não foi pega internamente e formatada.
-        logger.error(f"Erro crítico no handler síncrono ou durante execução de 'main': {e}", exc_info=True)
-        # Retorna um erro 500 genérico e bem formatado
-        return {
-            "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR.value,
-            "body": json.dumps({"error": f"Erro crítico no handler: {str(e)}"})
+    logger.info("[TESTE DIAGNÓSTICO] Handler síncrono SIMPLIFICADO Vercel chamado.")
+    logger.info(f"[TESTE DIAGNÓSTICO] Evento recebido: {json.dumps(event, indent=2)}") # Loga o evento formatado
+    
+    # Não vamos chamar asyncio.run(main(event, context)) por enquanto.
+    # Vamos apenas retornar uma resposta dummy bem formatada.
+    
+    response_body = {"message": "Resposta do handler de teste simplificado Vercel!"}
+    status_code = HTTPStatus.OK.value # Usa .value para garantir que é um inteiro (200)
+    
+    logger.info(f"[TESTE DIAGNÓSTICO] Retornando resposta dummy: statusCode={status_code}, body={json.dumps(response_body)}")
+    
+    return {
+        "statusCode": status_code,
+        "body": json.dumps(response_body),
+        "headers": { 
+            "Content-Type": "application/json"
         }
+    }
