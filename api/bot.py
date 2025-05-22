@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime, timedelta
+from decimal import Decimal, ROUND_DOWN # Usar Decimal para precisão financeira
 from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from telegram import Update
@@ -14,62 +15,62 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Configurações (carregadas no início do módulo)
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-QUICKNODE_URL = os.environ.get("QUICKNODE_URL")
-TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+# --- Configurações Hardcodificadas ---
+TELEGRAM_TOKEN = "8162370248:AAGAKhkdPBSusC4yXt67UGEmmkFUxDyjU4s"
+QUICKNODE_URL = "https://dry-flashy-reel.solana-mainnet.quiknode.pro/9e6485b3ea793670ad44d83380549b176d6ab7db/"
+# ------------------------------------
 
 # Armazenamento em memória para competições
-# Será resetado entre invocações em ambientes serverless,
-# a menos que a instância da função seja reutilizada ("warm start")
+# Lembre-se: em ambientes serverless, isso é resetado entre invocações "frias".
 competitions = {}  # {chat_id: {"token_address": str, "start_time": datetime, "period_days": int}}
 
 # Conexão com QuickNode
+solana_client = None # Inicializa como None
 if QUICKNODE_URL:
     try:
         solana_client = Client(QUICKNODE_URL)
-        logger.info("Conexão com QuickNode estabelecida com sucesso.")
+        logger.info("Conexão com QuickNode estabelecida com sucesso usando URL hardcodificada.")
     except Exception as e:
-        logger.error(f"Erro ao inicializar cliente Solana: {e}")
-        solana_client = None
+        logger.error(f"Erro ao inicializar cliente Solana com URL hardcodificada: {e}")
+        # solana_client permanece None se a conexão falhar
 else:
-    logger.error("QUICKNODE_URL não está configurada como variável de ambiente.")
-    solana_client = None
+    logger.error("QUICKNODE_URL está vazia (verifique o código).")
 
-# Iniciar competição (permanece igual)
+
 async def start_comp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Comando /startcomp recebido de {update.message.from_user.id}")
     chat_id = str(update.message.chat_id)
     args = context.args
     if len(args) != 2:
-        await update.message.reply_text("Use: /startcomp <endereço_do_token> <período_em_dias>")
+        await update.message.reply_text("Use: /startcomp <endereço_do_token_alvo> <período_em_dias>")
         return
-    token_address, period_str = args
+    token_address_str, period_str = args
     try:
+        Pubkey.from_string(token_address_str) # Valida endereço do token
         period_days = int(period_str.replace("d", ""))
-        Pubkey.from_string(token_address)  # Valida endereço do token
+        
         competitions[chat_id] = {
-            "token_address": token_address,
+            "token_address": token_address_str,
             "start_time": datetime.now(),
             "period_days": period_days
         }
-        await update.message.reply_text(f"Competição iniciada para o token {token_address} por {period_days} dias!")
-        logger.info(f"Competição iniciada no chat {chat_id} para o token {token_address} por {period_days} dias.")
+        await update.message.reply_text(f"Competição de gastos de SOL iniciada para o token {token_address_str} por {period_days} dias!")
+        logger.info(f"Competição (SOL gasta) iniciada no chat {chat_id} para o token {token_address_str} por {period_days} dias.")
     except ValueError:
         logger.error(f"Período inválido fornecido: {period_str}")
         await update.message.reply_text("Erro: O período deve ser um número (ex: '7d' para 7 dias).")
     except Exception as e:
-        logger.error(f"Erro ao iniciar competição para token {token_address}: {e}")
+        logger.error(f"Erro ao iniciar competição para token {token_address_str}: {e}")
         await update.message.reply_text(f"Erro ao iniciar competição: {str(e)}")
 
-# Consultar transações e gerar ranking (modificado)
+
 async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"Comando /ranking recebido de {update.message.from_user.id}")
+    logger.info(f"Comando /ranking (SOL gasta) recebido de {update.message.from_user.id}")
     chat_id = str(update.message.chat_id)
 
     if not solana_client:
-        logger.error("Cliente Solana não inicializado. Verifique a URL do QuickNode.")
-        await update.message.reply_text("Erro interno: Não foi possível conectar ao serviço Solana.")
+        logger.error("Cliente Solana não está disponível para o comando ranking.")
+        await update.message.reply_text("Erro interno: Serviço Solana indisponível.")
         return
 
     if chat_id not in competitions:
@@ -77,7 +78,8 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     comp = competitions[chat_id]
-    token_address = comp["token_address"]
+    target_token_address_str = comp["token_address"] # O token que queremos ver ser comprado
+    target_token_pubkey = Pubkey.from_string(target_token_address_str)
     start_time = comp["start_time"]
     period_days = comp["period_days"]
     end_time = start_time + timedelta(days=period_days)
@@ -87,21 +89,23 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Considere limpar a competição: del competitions[chat_id]
         return
 
-    await update.message.reply_text("Calculando ranking, por favor aguarde...")
+    await update.message.reply_text("Calculando ranking de SOL gasta, isso pode levar alguns minutos...")
+
+    sol_spent_by_wallet = {} # {wallet_address_comprador: total_sol_gasta_Decimal}
+    SOL_DECIMALS = 9 
 
     try:
-        token_pubkey = Pubkey.from_string(token_address)
+        # Busca assinaturas onde o token alvo PODE estar envolvido.
+        # Este é um ponto de partida; nem todas essas txs serão compras diretas de SOL->Token.
         signatures_response = solana_client.get_signatures_for_address(
-            token_pubkey,
-            limit=150 # Aumentado o limite, ajuste conforme necessário
+            target_token_pubkey, # Busca transações relacionadas à conta do token
+            limit=200 # ATENÇÃO: Limite de transações a analisar. Ajuste com cuidado.
+                      # Valores altos aumentam o tempo de processamento e o uso da API RPC.
         )
         signatures = signatures_response.value if signatures_response else []
-        logger.info(f"Obtidas {len(signatures)} assinaturas para o token {token_address}")
+        logger.info(f"Obtidas {len(signatures)} assinaturas candidatas envolvendo o token {target_token_address_str}")
 
-        # volumes agora armazena {wallet_address_destino: volume_total_recebido}
-        volumes = {} 
-        processed_signatures_in_period = 0
-
+        processed_tx_count_in_period = 0
         for sig_info in signatures:
             if sig_info.block_time is None:
                 continue
@@ -110,108 +114,145 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not (start_time <= tx_time <= end_time): # Filtra transações fora do período
                 continue
             
-            processed_signatures_in_period += 1
-            # A chamada get_transaction é custosa. Para um grande volume, considere otimizações.
-            transaction_detail = solana_client.get_transaction(sig_info.signature, max_supported_transaction_version=0)
-            tx = transaction_detail.value if transaction_detail else None
+            processed_tx_count_in_period +=1
+            logger.info(f"Processando transação {sig_info.signature} ({processed_tx_count_in_period} no período)")
 
-            if not tx or not tx.transaction or not tx.transaction.message:
-                logger.warning(f"Não foi possível obter detalhes da transação para a assinatura: {sig_info.signature}")
-                continue
+            try:
+                transaction_detail_response = solana_client.get_transaction(
+                    sig_info.signature, 
+                    max_supported_transaction_version=0 # Crucial para obter o campo 'meta'
+                )
+                tx_info = transaction_detail_response.value if transaction_detail_response else None
 
-            for instruction in tx.transaction.message.instructions:
-                if instruction.program_id == TOKEN_PROGRAM_ID:
-                    if len(instruction.data) >= 9 and instruction.data[0] == 3: # Instrução de Transferência
-                        msg_accounts = tx.transaction.message.account_keys
-                        try:
-                            destination_pk_index = instruction.accounts[1] # Índice da conta de destino na tx
-                            destination_wallet_address = str(msg_accounts[destination_pk_index])
+                if not tx_info or not tx_info.meta or not tx_info.transaction or not tx_info.transaction.message:
+                    logger.warning(f"Metadados ou detalhes da transação faltando para {sig_info.signature}")
+                    continue
+
+                account_keys = tx_info.transaction.message.account_keys
+                if not account_keys: # Deve haver pelo menos uma conta (o pagador da taxa)
+                    continue
+                
+                # Assumimos que account_keys[0] é o pagador da taxa e principal ator (potencial comprador).
+                potential_buyer_pubkey = account_keys[0]
+                potential_buyer_address_str = str(potential_buyer_pubkey)
+
+                # 1. Calcular SOL gasta pelo potential_buyer (índice 0)
+                sol_spent_lamports_for_tx = Decimal(0)
+                if tx_info.meta.pre_balances and tx_info.meta.post_balances and \
+                   len(tx_info.meta.pre_balances) > 0 and len(tx_info.meta.post_balances) > 0:
+                    
+                    sol_before_lamports = Decimal(tx_info.meta.pre_balances[0])
+                    sol_after_lamports = Decimal(tx_info.meta.post_balances[0])
+                    sol_diff_lamports = sol_before_lamports - sol_after_lamports # Positivo se SOL saiu
+                    
+                    if sol_diff_lamports > 0: # Se SOL realmente saiu da conta do potencial comprador
+                        sol_spent_lamports_for_tx = sol_diff_lamports
+                
+                if sol_spent_lamports_for_tx <= 0: # Não gastou SOL ou até recebeu SOL líquido nesta conta
+                    continue # Pular para a próxima transação
+
+                # 2. Verificar se o target_token foi recebido por uma conta pertencente ao potential_buyer
+                target_token_received_by_buyer = False
+                if tx_info.meta.post_token_balances: # Só prossiga se houver saldos de token
+                    for post_tk_balance_entry in tx_info.meta.post_token_balances:
+                        if post_tk_balance_entry.mint == target_token_address_str and \
+                           post_tk_balance_entry.owner == potential_buyer_address_str: # Token correto, dono correto
+
+                            pre_tk_balance_entry = next(
+                                (pre_b for pre_b in (tx_info.meta.pre_token_balances or [])
+                                 if pre_b.account_index == post_tk_balance_entry.account_index and \
+                                    pre_b.mint == target_token_address_str),
+                                None
+                            )
                             
-                            amount_bytes = instruction.data[1:9]
-                            amount = int.from_bytes(amount_bytes, "little")
+                            amount_after_raw = Decimal(post_tk_balance_entry.ui_token_amount.amount if post_tk_balance_entry.ui_token_amount else '0')
+                            amount_before_raw = Decimal(0)
+                            if pre_tk_balance_entry and pre_tk_balance_entry.ui_token_amount:
+                                amount_before_raw = Decimal(pre_tk_balance_entry.ui_token_amount.amount)
                             
-                            # ASSUMINDO 9 DECIMAIS PARA O TOKEN. Idealmente, buscar via RPC.
-                            token_decimals = 9 
-                            human_readable_amount = amount / (10**token_decimals)
+                            if amount_after_raw > amount_before_raw: # Houve um aumento no saldo do token alvo
+                                target_token_received_by_buyer = True
+                                break # Token alvo recebido pelo comprador, podemos parar de verificar saldos de token
+                
+                if target_token_received_by_buyer:
+                    # Confirmamos que SOL saiu da conta principal E o token alvo entrou em uma conta do mesmo dono
+                    sol_spent_native = sol_spent_lamports_for_tx / (Decimal(10)**SOL_DECIMALS)
+                    
+                    current_total_sol_spent = sol_spent_by_wallet.get(potential_buyer_address_str, Decimal(0))
+                    sol_spent_by_wallet[potential_buyer_address_str] = current_total_sol_spent + sol_spent_native
+                    logger.info(f"Carteira {potential_buyer_address_str} gastou ~{sol_spent_native:.{SOL_DECIMALS}f} SOL (incl. taxas) e recebeu o token alvo nesta tx. Total acumulado: {sol_spent_by_wallet[potential_buyer_address_str]}")
+                else:
+                    logger.debug(f"Tx {sig_info.signature}: SOL gasto por {potential_buyer_address_str} mas não houve recebimento confirmado do token alvo por ele.")
 
-                            # Acumula volume para qualquer carteira de destino que recebeu o token
-                            volumes[destination_wallet_address] = volumes.get(destination_wallet_address, 0) + human_readable_amount
-                            logger.debug(f"Transferência para {destination_wallet_address} de {human_readable_amount} tokens")
-                        except IndexError:
-                            logger.warning(f"Índice de conta inválido na instrução para a assinatura {sig_info.signature}")
-                        except Exception as e_instr:
-                            logger.error(f"Erro processando instrução para {sig_info.signature}: {e_instr}")
-        
-        logger.info(f"Processadas {processed_signatures_in_period} assinaturas dentro do período da competição.")
+            except Exception as e_tx_proc:
+                logger.error(f"Erro processando detalhes da transação {sig_info.signature}: {e_tx_proc}", exc_info=False)
+                # exc_info=True para traceback completo nos logs do Vercel, pode ser muito verboso.
 
-        if not volumes:
-            await update.message.reply_text("Nenhum volume de tokens (recebimentos) registrado no período da competição.")
+        if not sol_spent_by_wallet:
+            await update.message.reply_text(f"Nenhuma compra (SOL gasto para obter {target_token_address_str}) foi identificada no período da competição.")
             return
 
-        # Prepara os volumes para o ranking (lista de tuplas: (wallet_address, volume))
-        ranked_wallets = []
-        for wallet_address, volume in volumes.items():
-            if volume > 0: # Apenas incluir quem teve volume
-                ranked_wallets.append((wallet_address, volume))
+        # Ordena as carteiras pelo total de SOL gasto, do maior para o menor
+        ranked_wallets = sorted(sol_spent_by_wallet.items(), key=lambda item: item[1], reverse=True)
         
-        if not ranked_wallets: # Dupla verificação, caso volumes contenham apenas zeros (improvável se o if acima funcionar)
-            await update.message.reply_text("Nenhum volume de tokens (recebimentos) significativo registrado.")
-            return
-
-        ranked_wallets.sort(key=lambda x: x[1], reverse=True) # Ordenar por volume (maior primeiro)
-        
-        message = f"🏆 Ranking de Recebimento - Token {token_address}\n"
+        message = f"🏆 Ranking de Gasto de SOL - Token Adquirido: {target_token_address_str[:6]}...{target_token_address_str[-4:]}\n"
         message += f"Período: {start_time.strftime('%d/%m/%Y %H:%M')} - {end_time.strftime('%d/%m/%Y %H:%M')}\n\n"
         
-        for i, (wallet, volume) in enumerate(ranked_wallets, 1):
-            message += f"{i}. Carteira: {wallet[:6]}...{wallet[-4:]} -> {volume:.4f} tokens\n"
-            if i >= 20: # Limitar o ranking exibido para não ficar muito longo
+        for i, (wallet_address, total_sol_spent) in enumerate(ranked_wallets, 1):
+            # Formatar SOL com algumas casas decimais para exibição
+            sol_display = total_sol_spent.quantize(Decimal('0.00001'), rounding=ROUND_DOWN) if total_sol_spent > Decimal(0) else Decimal(0)
+            message += f"{i}. Carteira: {wallet_address[:6]}...{wallet_address[-4:]} -> {sol_display} SOL\n"
+            if i >= 20: # Limitar o número de entradas no ranking para a mensagem não ficar muito longa
                 message += f"\nE mais {len(ranked_wallets) - i} outras carteiras..."
                 break
         
         await update.message.reply_text(message)
-        logger.info(f"Ranking enviado para o chat {chat_id}")
+        logger.info(f"Ranking de SOL gasta enviado para o chat {chat_id}")
 
     except Exception as e:
-        logger.error(f"Erro crítico ao gerar ranking para o chat {chat_id}: {e}", exc_info=True)
-        await update.message.reply_text(f"Ocorreu um erro inesperado ao gerar o ranking. Tente novamente mais tarde.")
+        logger.error(f"Erro crítico ao gerar ranking de SOL gasta para o chat {chat_id}: {e}", exc_info=True)
+        await update.message.reply_text(f"Ocorreu um erro inesperado ao gerar o ranking. Detalhe: {str(e)}")
 
 
 # Handler principal para Vercel
 async def main(event_data, context):
+    # Verificações críticas de configuração no início
     if not TELEGRAM_TOKEN:
-        logger.critical("TELEGRAM_TOKEN não está configurado!")
+        logger.critical("Variável de ambiente TELEGRAM_TOKEN não está configurada (hardcoded)!")
         return {
             "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR.value,
             "body": json.dumps({"error": "Configuração do servidor incompleta: TELEGRAM_TOKEN faltando."})
         }
     if not solana_client:
-        logger.critical("Cliente Solana não inicializado.")
+        logger.critical("Cliente Solana não inicializado. Verifique a URL do QuickNode ou erros na inicialização (hardcoded).")
         return {
             "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR.value,
             "body": json.dumps({"error": "Configuração do servidor incompleta: Conexão Solana falhou."})
         }
 
     try:
-        logger.info(f"Recebido evento: {event_data}")
+        logger.info(f"Handler principal 'main' chamado. Recebido evento: {event_data}")
+        # O corpo do evento da Vercel para uma requisição HTTP POST está em event_data["body"]
         if isinstance(event_data.get("body"), str):
             body_str = event_data["body"]
-        else:
+        else: # Se já for um dict (menos comum para POST direto, mas pode acontecer via API Gateway)
             body_str = json.dumps(event_data.get("body", {}))
 
         body = json.loads(body_str)
-        logger.info(f"Corpo do webhook: {body}")
+        logger.info(f"Corpo do webhook decodificado: {body}")
         
-        update = Update.de_json(body, None)
+        update = Update.de_json(body, None) # O segundo argumento é o bot, que o Application builder vai criar
         
+        # Cria a aplicação Telegram a cada request (típico para serverless)
         application = Application.builder().token(TELEGRAM_TOKEN).build()
         
-        # REMOVIDO: application.add_handler(CommandHandler("registerwallet", register_wallet))
+        # Adiciona os handlers de comando
         application.add_handler(CommandHandler("startcomp", start_comp))
         application.add_handler(CommandHandler("ranking", ranking))
         
+        # Processa o update
         await application.process_update(update)
-        logger.info("Update processado com sucesso.")
+        logger.info("Update processado com sucesso pela aplicação Telegram.")
         
         return {
             "statusCode": HTTPStatus.OK.value,
@@ -224,7 +265,7 @@ async def main(event_data, context):
             "body": json.dumps({"error": "Corpo da requisição JSON inválido."})
         }
     except Exception as e:
-        logger.error(f"Erro inesperado no handler principal: {e}", exc_info=True)
+        logger.error(f"Erro inesperado no handler principal 'main': {e}", exc_info=True) # exc_info=True para logar o traceback
         return {
             "statusCode": HTTPStatus.INTERNAL_SERVER_ERROR.value,
             "body": json.dumps({"error": f"Erro interno do servidor: {str(e)}"})
@@ -232,5 +273,5 @@ async def main(event_data, context):
 
 # Entrypoint para Vercel (síncrono)
 def handler(event, context):
-    logger.info("Handler síncrono chamado pela Vercel.")
+    logger.info("Handler síncrono Vercel 'handler' chamado. Executando 'main' com asyncio.run().")
     return asyncio.run(main(event, context))
