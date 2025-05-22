@@ -2,17 +2,17 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/bot.py",
+      "src": "index.py",       способность (point to the new root index.py)
       "use": "@vercel/python",
       "config": {
-        "runtime": "python3.3"
+        "runtime": "python3.12"
       }
     }
   ],
   "routes": [
     {
-      "src": "/api/bot",
-      "dest": "api/bot.py",
+      "src": "/api/bot",      // A URL pública que seu bot Telegram usará
+      "dest": "index.py",     // Direciona requisições para /api/bot para serem tratadas por index.py
       "methods": ["POST"]
     }
   ]
