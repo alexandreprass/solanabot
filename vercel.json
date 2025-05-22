@@ -3,13 +3,26 @@
   "builds": [
     {
       "src": "api/bot.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "runtime": "python3.12"
+      }
     }
   ],
   "routes": [
     {
       "src": "/api/bot",
-      "dest": "api/bot.py"
+      "dest": "api/bot.py",
+      "methods": ["POST"],
+      "headers": {
+        "Access-Control-Allow-Origin": "*"
+      }
     }
-  ]
+  ],
+  "functions": {
+    "api/bot.py": {
+      "handler": "handler",
+      "runtime": "python3.12"
+    }
+  }
 }
