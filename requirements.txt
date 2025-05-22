@@ -1,4 +1,4 @@
 python-telegram-bot
 solana
-requests # Se for usar Vercel KV ou outra API HTTP para armazenamento
-# redis # Se for usar Upstash Redis
+requests
+redis  # Adicione esta linha para o cliente Upstash Redis
