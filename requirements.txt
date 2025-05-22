@@ -1,3 +1,2 @@
 python-telegram-bot==20.0
 solana==0.25.1
-solders==0.20.0
